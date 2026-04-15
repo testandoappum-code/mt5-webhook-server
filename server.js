@@ -79,45 +79,47 @@ app.post('/webhook/order', async (req, res) => {
 });
 
 // ============================================
-// WEBHOOK DO SALDO (MT5) - COM CRIAÇÃO AUTOMÁTICA DE CONTA
+// WEBHOOK DO SALDO (MT5) - COM CRIAÇÃO AUTOMÁTICA
 // ============================================
 app.post('/webhook/balance', async (req, res) => {
   console.log('💰 Saldo recebido:', req.body);
   
-  const { account_id, balance, equity, profit } = req.body;
+  const { account_id, account_number, balance, equity, profit } = req.body;
+  const accountId = account_id || account_number;
   
   try {
     // Verificar se a conta já existe
     const { data: existingAccount } = await supabase
       .from('trading_accounts')
       .select('id')
-      .eq('id', account_id)
+      .eq('id', accountId)
       .single();
     
     // Se não existir, criar conta automaticamente
     if (!existingAccount) {
       const { error: insertError } = await supabase.from('trading_accounts').insert({
-        id: account_id,
-        name: `Conta MT5 ${account_id}`,
+        id: accountId,
+        name: `MT5 Conta ${accountId}`,
+        account_number: accountId,
         balance: parseFloat(balance)
       });
       
       if (insertError) {
         console.error('Erro ao criar conta:', insertError);
       } else {
-        console.log('✅ Conta criada automaticamente:', account_id);
+        console.log('✅ Conta criada automaticamente:', accountId);
       }
     } else {
       // Atualizar saldo da conta existente
       await supabase
         .from('trading_accounts')
         .update({ balance: parseFloat(balance) })
-        .eq('id', account_id);
+        .eq('id', accountId);
     }
     
     // Salvar histórico de saldo
     await supabase.from('account_balance').insert({
-      account_id: account_id,
+      account_id: accountId,
       balance: parseFloat(balance),
       equity: parseFloat(equity),
       profit: parseFloat(profit)
@@ -146,7 +148,6 @@ app.post('/webhook/telegram', async (req, res) => {
    let resposta = "";
    let teclado = null;
    
-   // Menu principal
    if (text === "/start") {
       resposta = "📋 *Bem-vindo ao Life Dashboard!*\n\nEscolha uma opção abaixo:";
       teclado = {
@@ -160,7 +161,6 @@ app.post('/webhook/telegram', async (req, res) => {
          }
       };
    }
-   // Menu Trading
    else if (text === "📊 Trading") {
       resposta = "📊 *MENU TRADING*\n\nEscolha uma opção:";
       teclado = {
@@ -173,43 +173,6 @@ app.post('/webhook/telegram', async (req, res) => {
          }
       };
    }
-   // Menu Casa
-   else if (text === "🏠 Casa") {
-      resposta = "🏠 *MENU CASA*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   // Menu Metas
-   else if (text === "🎯 Metas") {
-      resposta = "🎯 *MENU METAS*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   // Menu Configurações
-   else if (text === "⚙️ Configurações") {
-      resposta = "⚙️ *CONFIGURAÇÕES*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   // Saldo atual
    else if (text === "💰 Saldo atual") {
       const { data } = await supabase
          .from('account_balance')
@@ -237,7 +200,6 @@ app.post('/webhook/telegram', async (req, res) => {
          }
       };
    }
-   // Voltar ao menu principal
    else if (text === "🔙 Voltar") {
       resposta = "📋 *Menu Principal*";
       teclado = {
@@ -250,12 +212,10 @@ app.post('/webhook/telegram', async (req, res) => {
          }
       };
    }
-   // Comando não reconhecido
    else {
       resposta = "❓ Comando não reconhecido.\nDigite /start para ver o menu.";
    }
    
-   // Enviar resposta para o Telegram
    const fetch = await import('node-fetch');
    await fetch.default(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
