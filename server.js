@@ -40,14 +40,13 @@ app.post('/webhook/balance', async (req, res) => {
       .maybeSingle();
     
     if (!existingAccount) {
-      // Criar nova conta
+      // Criar nova conta - SEM account_type
       const { error: insertError } = await supabase.from('trading_accounts').insert({
         id: String(accountId),
         name: account_name || `MT5 Conta ${accountId}`,
         account_number: String(account_number || accountId),
         balance: parseFloat(balance),
         broker: 'MT5',
-        account_type: 'Real',
         currency: 'BRL'
       });
       
@@ -83,7 +82,7 @@ app.post('/webhook/balance', async (req, res) => {
     console.error('❌ Erro geral:', err);
     res.status(500).json({ error: err.message });
   }
-});;
+});
 
 // ============================================
 // WEBHOOK DAS ORDENS (MT5)
