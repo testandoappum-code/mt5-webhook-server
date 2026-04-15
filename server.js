@@ -40,7 +40,7 @@ app.post('/webhook/balance', async (req, res) => {
     
     if (!existingAccount) {
       const { error: insertError } = await supabase.from('trading_accounts').insert({
-        id: String(accountId),
+        account_id: String(accountId),
         name: account_name || `MT5 Conta ${accountId}`,
         account_number: String(account_number || accountId),
         balance: parseFloat(balance),
