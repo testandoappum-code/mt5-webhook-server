@@ -79,7 +79,7 @@ app.post('/webhook/order', async (req, res) => {
 });
 
 // ============================================
-// WEBHOOK DO SALDO (MT5)
+// WEBHOOK DO SALDO (MT5) - COM CRIAÇÃO AUTOMÁTICA DE CONTA
 // ============================================
 app.post('/webhook/balance', async (req, res) => {
   console.log('💰 Saldo recebido:', req.body);
@@ -87,6 +87,35 @@ app.post('/webhook/balance', async (req, res) => {
   const { account_id, balance, equity, profit } = req.body;
   
   try {
+    // Verificar se a conta já existe
+    const { data: existingAccount } = await supabase
+      .from('trading_accounts')
+      .select('id')
+      .eq('id', account_id)
+      .single();
+    
+    // Se não existir, criar conta automaticamente
+    if (!existingAccount) {
+      const { error: insertError } = await supabase.from('trading_accounts').insert({
+        id: account_id,
+        name: `Conta MT5 ${account_id}`,
+        balance: parseFloat(balance)
+      });
+      
+      if (insertError) {
+        console.error('Erro ao criar conta:', insertError);
+      } else {
+        console.log('✅ Conta criada automaticamente:', account_id);
+      }
+    } else {
+      // Atualizar saldo da conta existente
+      await supabase
+        .from('trading_accounts')
+        .update({ balance: parseFloat(balance) })
+        .eq('id', account_id);
+    }
+    
+    // Salvar histórico de saldo
     await supabase.from('account_balance').insert({
       account_id: account_id,
       balance: parseFloat(balance),
