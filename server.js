@@ -32,17 +32,17 @@ app.post('/webhook/balance', async (req, res) => {
   const accountId = account_id || account_number;
   
   try {
-    // Verificar se a conta já existe usando account_id
+    // Verificar se a conta já existe usando a coluna id
     const { data: existingAccount } = await supabase
       .from('trading_accounts')
-      .select('account_id')
-      .eq('account_id', String(accountId))
+      .select('id')
+      .eq('id', String(accountId))
       .maybeSingle();
     
     if (!existingAccount) {
-      // Criar nova conta usando account_id
+      // Criar nova conta usando a coluna id
       const { error: insertError } = await supabase.from('trading_accounts').insert({
-        account_id: String(accountId),
+        id: String(accountId),
         name: account_name || `MT5 Conta ${accountId}`,
         account_number: String(account_number || accountId),
         balance: parseFloat(balance),
@@ -59,7 +59,7 @@ app.post('/webhook/balance', async (req, res) => {
       const { error: updateError } = await supabase
         .from('trading_accounts')
         .update({ balance: parseFloat(balance) })
-        .eq('account_id', String(accountId));
+        .eq('id', String(accountId));
       
       if (updateError) {
         console.error('❌ Erro ao atualizar saldo:', updateError);
