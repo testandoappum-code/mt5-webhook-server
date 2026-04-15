@@ -40,7 +40,7 @@ app.post('/webhook/balance', async (req, res) => {
       .maybeSingle();
     
     if (!existingAccount) {
-      // Criar nova conta usando account_number
+      // Criar nova conta
       const { error: insertError } = await supabase.from('trading_accounts').insert({
         name: account_name || `MT5 Conta ${accountId}`,
         account_number: String(accountId),
