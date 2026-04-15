@@ -54,7 +54,7 @@ app.post('/webhook/order', async (req, res) => {
     const { data: operation, error } = await supabase
       .from('trading_operations')
       .insert({
-        account_id: account_id,
+        account_id: String(account_id),
         asset_id: assetData.id,
         asset: asset,
         quantity: lots,
@@ -87,48 +87,73 @@ app.post('/webhook/balance', async (req, res) => {
   const { account_id, account_number, balance, equity, profit } = req.body;
   const accountId = account_id || account_number;
   
+  console.log('📝 Account ID:', accountId);
+  console.log('📝 Account Number:', account_number);
+  
   try {
     // Verificar se a conta já existe
     const { data: existingAccount } = await supabase
       .from('trading_accounts')
-      .select('id')
-      .eq('id', accountId)
-      .single();
+      .select('id, name, account_number')
+      .eq('id', String(accountId))
+      .maybeSingle();
+    
+    console.log('🔍 Conta existente:', existingAccount);
     
     // Se não existir, criar conta automaticamente
     if (!existingAccount) {
-      const { error: insertError } = await supabase.from('trading_accounts').insert({
-        id: accountId,
+      const { data: newAccount, error: insertError } = await supabase.from('trading_accounts').insert({
+        id: String(accountId),
         name: `MT5 Conta ${accountId}`,
-        account_number: accountId,
+        account_number: String(account_number || accountId),
         balance: parseFloat(balance)
-      });
+      }).select();
       
       if (insertError) {
-        console.error('Erro ao criar conta:', insertError);
+        console.error('❌ Erro ao criar conta:', insertError);
       } else {
-        console.log('✅ Conta criada automaticamente:', accountId);
+        console.log('✅ Conta criada automaticamente:', newAccount);
       }
     } else {
       // Atualizar saldo da conta existente
-      await supabase
+      const { error: updateError } = await supabase
         .from('trading_accounts')
         .update({ balance: parseFloat(balance) })
-        .eq('id', accountId);
+        .eq('id', String(accountId));
+      
+      if (updateError) {
+        console.error('❌ Erro ao atualizar saldo:', updateError);
+      } else {
+        console.log('✅ Saldo atualizado para conta:', accountId);
+      }
+      
+      // Se account_number estiver vazio, atualizar
+      if (!existingAccount.account_number) {
+        await supabase
+          .from('trading_accounts')
+          .update({ account_number: String(accountId) })
+          .eq('id', String(accountId));
+      }
     }
     
     // Salvar histórico de saldo
-    await supabase.from('account_balance').insert({
-      account_id: accountId,
+    const { error: historyError } = await supabase.from('account_balance').insert({
+      account_id: String(accountId),
       balance: parseFloat(balance),
       equity: parseFloat(equity),
       profit: parseFloat(profit)
     });
     
+    if (historyError) {
+      console.error('❌ Erro ao salvar histórico:', historyError);
+    } else {
+      console.log('✅ Histórico salvo');
+    }
+    
     res.sendStatus(200);
   } catch (err) {
-    console.error('Erro ao salvar saldo:', err);
-    res.sendStatus(500);
+    console.error('❌ Erro geral:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -191,6 +216,39 @@ app.post('/webhook/telegram', async (req, res) => {
          resposta = "⏳ Nenhum dado de saldo ainda. Aguarde o MT5 enviar...";
       }
       
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   else if (text === "🏠 Casa") {
+      resposta = "🏠 *MENU CASA*\n\nEm breve...";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   else if (text === "🎯 Metas") {
+      resposta = "🎯 *MENU METAS*\n\nEm breve...";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   else if (text === "⚙️ Configurações") {
+      resposta = "⚙️ *CONFIGURAÇÕES*\n\nEm breve...";
       teclado = {
          reply_markup: {
             keyboard: [
