@@ -23,7 +23,7 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================
-// WEBHOOK DO SALDO (MT5)
+// WEBHOOK DO SALDO (MT5) - CRIA CONTA AUTOMATICAMENTE
 // ============================================
 app.post('/webhook/balance', async (req, res) => {
   console.log('💰 Saldo recebido:', req.body);
@@ -32,13 +32,15 @@ app.post('/webhook/balance', async (req, res) => {
   const accountId = account_id || account_number;
   
   try {
+    // Verificar se a conta já existe usando account_id
     const { data: existingAccount } = await supabase
       .from('trading_accounts')
-      .select('id')
-      .eq('id', String(accountId))
+      .select('account_id')
+      .eq('account_id', String(accountId))
       .maybeSingle();
     
     if (!existingAccount) {
+      // Criar nova conta usando account_id
       const { error: insertError } = await supabase.from('trading_accounts').insert({
         account_id: String(accountId),
         name: account_name || `MT5 Conta ${accountId}`,
@@ -53,14 +55,20 @@ app.post('/webhook/balance', async (req, res) => {
         console.log('✅ Conta criada automaticamente:', accountId);
       }
     } else {
-      await supabase
+      // Atualizar saldo da conta existente
+      const { error: updateError } = await supabase
         .from('trading_accounts')
         .update({ balance: parseFloat(balance) })
-        .eq('id', String(accountId));
+        .eq('account_id', String(accountId));
       
-      console.log('✅ Saldo atualizado para conta:', accountId);
+      if (updateError) {
+        console.error('❌ Erro ao atualizar saldo:', updateError);
+      } else {
+        console.log('✅ Saldo atualizado para conta:', accountId);
+      }
     }
     
+    // Salvar histórico de saldo
     await supabase.from('account_balance').insert({
       account_id: String(accountId),
       balance: parseFloat(balance),
