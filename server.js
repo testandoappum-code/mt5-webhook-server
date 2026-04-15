@@ -126,6 +126,97 @@ app.post('/webhook/close', async (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+  // ============================================
+// TELEGRAM WEBHOOK - Menus e comandos
+// ============================================
+
+app.post('/webhook/telegram', async (req, res) => {
+   const { message } = req.body;
+   
+   if (!message) {
+      return res.sendStatus(200);
+   }
+   
+   const chatId = message.chat.id;
+   const text = message.text || "";
+   
+   let resposta = "";
+   let teclado = null;
+   
+   // Menu principal
+   if (text === "/start") {
+      resposta = "📋 *Bem-vindo ao Life Dashboard!*\n\nEscolha uma opção abaixo:";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "📊 Trading" }, { text: "🏠 Casa" }],
+               [{ text: "🎯 Metas" }, { text: "⚙️ Configurações" }]
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: false
+         }
+      };
+   }
+   // Menu Trading
+   else if (text === "📊 Trading") {
+      resposta = "📊 *MENU TRADING*\n\nEscolha uma opção:";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "📈 Últimas ordens" }, { text: "💰 Saldo atual" }],
+               [{ text: "📅 Histórico do dia" }, { text: "🔔 Alertas ativos" }],
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Menu Casa
+   else if (text === "🏠 Casa") {
+      resposta = "🏠 *MENU CASA*\n\nEscolha uma opção:";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "📋 Afazeres" }, { text: "💳 Dívidas" }],
+               [{ text: "💰 Finanças" }, { text: "🏦 Contas" }],
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Voltar ao menu principal
+   else if (text === "🔙 Voltar") {
+      resposta = "📋 *Menu Principal*";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "📊 Trading" }, { text: "🏠 Casa" }],
+               [{ text: "🎯 Metas" }, { text: "⚙️ Configurações" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Comando não reconhecido
+   else {
+      resposta = "❓ Comando não reconhecido.\nDigite /start para ver o menu.";
+   }
+   
+   // Enviar resposta
+   await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+         chat_id: chatId,
+         text: resposta,
+         parse_mode: "Markdown",
+         ...teclado
+      })
+   });
+   
+   res.sendStatus(200);
+});
 });
 
 app.listen(PORT, () => {
