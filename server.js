@@ -23,10 +23,60 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================
-// WEBHOOK DO MT5 (ORDENS)
+// WEBHOOK DO SALDO (MT5) - CRIA CONTA AUTOMATICAMENTE
+// ============================================
+app.post('/webhook/balance', async (req, res) => {
+  console.log('💰 Saldo recebido:', req.body);
+  
+  const { account_id, account_number, account_name, balance, equity, profit } = req.body;
+  const accountId = account_id || account_number;
+  
+  try {
+    const { data: existingAccount } = await supabase
+      .from('trading_accounts')
+      .select('id')
+      .eq('id', String(accountId))
+      .maybeSingle();
+    
+    if (!existingAccount) {
+      const { error: insertError } = await supabase.from('trading_accounts').insert({
+        id: String(accountId),
+        name: account_name || `MT5 Conta ${accountId}`,
+        account_number: String(account_number || accountId),
+        balance: parseFloat(balance)
+      });
+      
+      if (insertError) {
+        console.error('❌ Erro ao criar conta:', insertError);
+      } else {
+        console.log('✅ Conta criada automaticamente:', accountId);
+      }
+    } else {
+      await supabase
+        .from('trading_accounts')
+        .update({ balance: parseFloat(balance) })
+        .eq('id', String(accountId));
+    }
+    
+    await supabase.from('account_balance').insert({
+      account_id: String(accountId),
+      balance: parseFloat(balance),
+      equity: parseFloat(equity),
+      profit: parseFloat(profit)
+    });
+    
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Erro geral:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// WEBHOOK DAS ORDENS (MT5)
 // ============================================
 app.post('/webhook/order', async (req, res) => {
-  console.log('📥 Webhook recebido:', req.body);
+  console.log('📥 Ordem recebida:', req.body);
   
   const secret = req.headers['x-webhook-secret'];
   if (secret !== process.env.WEBHOOK_SECRET) {
@@ -76,217 +126,6 @@ app.post('/webhook/order', async (req, res) => {
     console.error('Erro:', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// ============================================
-// WEBHOOK DO SALDO (MT5) - COM CRIAÇÃO AUTOMÁTICA
-// ============================================
-app.post('/webhook/balance', async (req, res) => {
-  console.log('💰 Saldo recebido:', req.body);
-  
-  const { account_id, account_number, balance, equity, profit } = req.body;
-  const accountId = account_id || account_number;
-  
-  console.log('📝 Account ID:', accountId);
-  console.log('📝 Account Number:', account_number);
-  
-  try {
-    // Verificar se a conta já existe
-    const { data: existingAccount } = await supabase
-      .from('trading_accounts')
-      .select('id, name, account_number')
-      .eq('id', String(accountId))
-      .maybeSingle();
-    
-    console.log('🔍 Conta existente:', existingAccount);
-    
-    // Se não existir, criar conta automaticamente
-    if (!existingAccount) {
-      const { data: newAccount, error: insertError } = await supabase.from('trading_accounts').insert({
-        id: String(accountId),
-        name: `MT5 Conta ${accountId}`,
-        account_number: String(account_number || accountId),
-        balance: parseFloat(balance)
-      }).select();
-      
-      if (insertError) {
-        console.error('❌ Erro ao criar conta:', insertError);
-      } else {
-        console.log('✅ Conta criada automaticamente:', newAccount);
-      }
-    } else {
-      // Atualizar saldo da conta existente
-      const { error: updateError } = await supabase
-        .from('trading_accounts')
-        .update({ balance: parseFloat(balance) })
-        .eq('id', String(accountId));
-      
-      if (updateError) {
-        console.error('❌ Erro ao atualizar saldo:', updateError);
-      } else {
-        console.log('✅ Saldo atualizado para conta:', accountId);
-      }
-      
-      // Se account_number estiver vazio, atualizar
-      if (!existingAccount.account_number) {
-        await supabase
-          .from('trading_accounts')
-          .update({ account_number: String(accountId) })
-          .eq('id', String(accountId));
-      }
-    }
-    
-    // Salvar histórico de saldo
-    const { error: historyError } = await supabase.from('account_balance').insert({
-      account_id: String(accountId),
-      balance: parseFloat(balance),
-      equity: parseFloat(equity),
-      profit: parseFloat(profit)
-    });
-    
-    if (historyError) {
-      console.error('❌ Erro ao salvar histórico:', historyError);
-    } else {
-      console.log('✅ Histórico salvo');
-    }
-    
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('❌ Erro geral:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================
-// TELEGRAM WEBHOOK - Menus e comandos
-// ============================================
-app.post('/webhook/telegram', async (req, res) => {
-   const { message } = req.body;
-   
-   if (!message) {
-      return res.sendStatus(200);
-   }
-   
-   const chatId = message.chat.id;
-   const text = message.text || "";
-   
-   let resposta = "";
-   let teclado = null;
-   
-   if (text === "/start") {
-      resposta = "📋 *Bem-vindo ao Life Dashboard!*\n\nEscolha uma opção abaixo:";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "📊 Trading" }, { text: "🏠 Casa" }],
-               [{ text: "🎯 Metas" }, { text: "⚙️ Configurações" }]
-            ],
-            resize_keyboard: true,
-            one_time_keyboard: false
-         }
-      };
-   }
-   else if (text === "📊 Trading") {
-      resposta = "📊 *MENU TRADING*\n\nEscolha uma opção:";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "💰 Saldo atual" }],
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else if (text === "💰 Saldo atual") {
-      const { data } = await supabase
-         .from('account_balance')
-         .select('*')
-         .order('created_at', { ascending: false })
-         .limit(1);
-      
-      if (data && data.length > 0) {
-         resposta = `💰 *SALDO ATUAL*\n\n`;
-         resposta += `💵 Saldo: R$ ${parseFloat(data[0].balance).toFixed(2)}\n`;
-         resposta += `📊 Equity: R$ ${parseFloat(data[0].equity).toFixed(2)}\n`;
-         resposta += `📈 Lucro: R$ ${parseFloat(data[0].profit).toFixed(2)}`;
-         if(parseFloat(data[0].profit) >= 0) resposta += " ✅";
-         else resposta += " ❌";
-      } else {
-         resposta = "⏳ Nenhum dado de saldo ainda. Aguarde o MT5 enviar...";
-      }
-      
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else if (text === "🏠 Casa") {
-      resposta = "🏠 *MENU CASA*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else if (text === "🎯 Metas") {
-      resposta = "🎯 *MENU METAS*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else if (text === "⚙️ Configurações") {
-      resposta = "⚙️ *CONFIGURAÇÕES*\n\nEm breve...";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "🔙 Voltar" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else if (text === "🔙 Voltar") {
-      resposta = "📋 *Menu Principal*";
-      teclado = {
-         reply_markup: {
-            keyboard: [
-               [{ text: "📊 Trading" }, { text: "🏠 Casa" }],
-               [{ text: "🎯 Metas" }, { text: "⚙️ Configurações" }]
-            ],
-            resize_keyboard: true
-         }
-      };
-   }
-   else {
-      resposta = "❓ Comando não reconhecido.\nDigite /start para ver o menu.";
-   }
-   
-   const fetch = await import('node-fetch');
-   await fetch.default(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-         chat_id: chatId,
-         text: resposta,
-         parse_mode: "Markdown",
-         ...teclado
-      })
-   });
-   
-   res.sendStatus(200);
 });
 
 // ============================================
