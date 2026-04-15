@@ -8,17 +8,23 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
-function calcularResultado(direction, entrada, saida, lotes) {
-  const diferenca = direction === 'Long' ? saida - entrada : entrada - saida;
-  return diferenca * lotes;
-}
+// ============================================
+// HEALTH CHECK
+// ============================================
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
+// ============================================
+// WEBHOOK DO MT5 (ORDENS)
+// ============================================
 app.post('/webhook/order', async (req, res) => {
   console.log('📥 Webhook recebido:', req.body);
   
@@ -72,64 +78,32 @@ app.post('/webhook/order', async (req, res) => {
   }
 });
 
-app.post('/webhook/close', async (req, res) => {
-  console.log('📥 Fechamento:', req.body);
+// ============================================
+// WEBHOOK DO SALDO (MT5)
+// ============================================
+app.post('/webhook/balance', async (req, res) => {
+  console.log('💰 Saldo recebido:', req.body);
   
-  const secret = req.headers['x-webhook-secret'];
-  if (secret !== process.env.WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'Invalid secret' });
-  }
-  
-  const { operation_id, exit_price, result_type } = req.body;
+  const { account_id, balance, equity, profit } = req.body;
   
   try {
-    const { data: operation } = await supabase
-      .from('trading_operations')
-      .select('*')
-      .eq('id', operation_id)
-      .single();
+    await supabase.from('account_balance').insert({
+      account_id: account_id,
+      balance: parseFloat(balance),
+      equity: parseFloat(equity),
+      profit: parseFloat(profit)
+    });
     
-    const resultado = calcularResultado(
-      operation.direction,
-      operation.entry_price,
-      parseFloat(exit_price),
-      operation.lots
-    );
-    
-    await supabase
-      .from('trading_operations')
-      .update({
-        exit_price: parseFloat(exit_price),
-        result: resultado,
-        status: result_type === 'take' ? 'Fechada (Take)' : 'Fechada (Stop)',
-        closed_at: new Date().toISOString().split('T')[0]
-      })
-      .eq('id', operation.id);
-    
-    const { data: conta } = await supabase
-      .from('trading_accounts')
-      .select('balance')
-      .eq('id', operation.account_id)
-      .single();
-    
-    await supabase
-      .from('trading_accounts')
-      .update({ balance: (conta.balance || 0) + resultado })
-      .eq('id', operation.account_id);
-    
-    res.json({ success: true, result: resultado });
+    res.sendStatus(200);
   } catch (err) {
-    console.error('Erro:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Erro ao salvar saldo:', err);
+    res.sendStatus(500);
   }
 });
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-  // ============================================
+// ============================================
 // TELEGRAM WEBHOOK - Menus e comandos
 // ============================================
-
 app.post('/webhook/telegram', async (req, res) => {
    const { message } = req.body;
    
@@ -163,8 +137,7 @@ app.post('/webhook/telegram', async (req, res) => {
       teclado = {
          reply_markup: {
             keyboard: [
-               [{ text: "📈 Últimas ordens" }, { text: "💰 Saldo atual" }],
-               [{ text: "📅 Histórico do dia" }, { text: "🔔 Alertas ativos" }],
+               [{ text: "💰 Saldo atual" }],
                [{ text: "🔙 Voltar" }]
             ],
             resize_keyboard: true
@@ -173,12 +146,62 @@ app.post('/webhook/telegram', async (req, res) => {
    }
    // Menu Casa
    else if (text === "🏠 Casa") {
-      resposta = "🏠 *MENU CASA*\n\nEscolha uma opção:";
+      resposta = "🏠 *MENU CASA*\n\nEm breve...";
       teclado = {
          reply_markup: {
             keyboard: [
-               [{ text: "📋 Afazeres" }, { text: "💳 Dívidas" }],
-               [{ text: "💰 Finanças" }, { text: "🏦 Contas" }],
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Menu Metas
+   else if (text === "🎯 Metas") {
+      resposta = "🎯 *MENU METAS*\n\nEm breve...";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Menu Configurações
+   else if (text === "⚙️ Configurações") {
+      resposta = "⚙️ *CONFIGURAÇÕES*\n\nEm breve...";
+      teclado = {
+         reply_markup: {
+            keyboard: [
+               [{ text: "🔙 Voltar" }]
+            ],
+            resize_keyboard: true
+         }
+      };
+   }
+   // Saldo atual
+   else if (text === "💰 Saldo atual") {
+      const { data } = await supabase
+         .from('account_balance')
+         .select('*')
+         .order('created_at', { ascending: false })
+         .limit(1);
+      
+      if (data && data.length > 0) {
+         resposta = `💰 *SALDO ATUAL*\n\n`;
+         resposta += `💵 Saldo: R$ ${parseFloat(data[0].balance).toFixed(2)}\n`;
+         resposta += `📊 Equity: R$ ${parseFloat(data[0].equity).toFixed(2)}\n`;
+         resposta += `📈 Lucro: R$ ${parseFloat(data[0].profit).toFixed(2)}`;
+         if(parseFloat(data[0].profit) >= 0) resposta += " ✅";
+         else resposta += " ❌";
+      } else {
+         resposta = "⏳ Nenhum dado de saldo ainda. Aguarde o MT5 enviar...";
+      }
+      
+      teclado = {
+         reply_markup: {
+            keyboard: [
                [{ text: "🔙 Voltar" }]
             ],
             resize_keyboard: true
@@ -203,8 +226,9 @@ app.post('/webhook/telegram', async (req, res) => {
       resposta = "❓ Comando não reconhecido.\nDigite /start para ver o menu.";
    }
    
-   // Enviar resposta
-   await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
+   // Enviar resposta para o Telegram
+   const fetch = await import('node-fetch');
+   await fetch.default(`https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -217,8 +241,10 @@ app.post('/webhook/telegram', async (req, res) => {
    
    res.sendStatus(200);
 });
-});
 
+// ============================================
+// INICIAR SERVIDOR
+// ============================================
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
