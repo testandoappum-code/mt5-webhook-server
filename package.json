@@ -1,173 +1,20 @@
-const express = require('express');
-const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware para limpar caracteres nulos do body ANTES do parser JSON
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', chunk => {
-    data += chunk.toString().replace(/\0/g, '');
-  });
-  req.on('end', () => {
-    try {
-      req.body = JSON.parse(data);
-    } catch (e) {
-      req.body = {};
-    }
-    next();
-  });
-});
-
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
-
-// ============================================
-// HEALTH CHECK
-// ============================================
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// ============================================
-// WEBHOOK DO SALDO (MT5)
-// ============================================
-app.post('/webhook/balance', async (req, res) => {
-  console.log('💰 Saldo recebido:', req.body);
-  
-  const { account_id, account_number, account_name, balance, equity, profit } = req.body;
-  const accountId = account_id || account_number;
-  
-  try {
-    const { data: existingAccount } = await supabase
-      .from('trading_accounts')
-      .select('account_number')
-      .eq('account_number', String(accountId))
-      .maybeSingle();
-    
-    if (!existingAccount) {
-      const { error: insertError } = await supabase.from('trading_accounts').insert({
-        account_number: String(accountId),
-        name: account_name || `MT5 Conta ${accountId}`,
-        nickname: account_name || `MT5 Conta ${accountId}`,
-        balance: parseFloat(balance),
-        broker: 'MT5'
-      });
-      
-      if (insertError) {
-        console.error('❌ Erro ao criar conta:', insertError);
-      } else {
-        console.log('✅ Conta criada automaticamente:', accountId);
-      }
-    } else {
-      await supabase
-        .from('trading_accounts')
-        .update({ balance: parseFloat(balance) })
-        .eq('account_number', String(accountId));
-      
-      console.log('✅ Saldo atualizado para conta:', accountId);
-    }
-    
-    await supabase.from('account_balance').insert({
-      account_id: String(accountId),
-      balance: parseFloat(balance),
-      equity: parseFloat(equity),
-      profit: parseFloat(profit)
-    });
-    
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('❌ Erro geral:', err);
-    res.status(500).json({ error: err.message });
+{
+  "name": "mt5-webhook-server",
+  "version": "1.0.0",
+  "description": "Webhook server for MT5 integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "@supabase/supabase-js": "^2.38.0",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
-});
-
-// ============================================
-// WEBHOOK DAS ORDENS (MT5)
-// ============================================
-app.post('/webhook/order', async (req, res) => {
-  console.log('📥 Ordem recebida:', req.body);
-  
-  const secret = req.headers['x-webhook-secret'];
-  if (secret !== process.env.WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'Invalid secret' });
-  }
-  
-  const { account_id, asset, direction, entry_price, lots, ticket, is_closed, result } = req.body;
-  
-  try {
-    let { data: assetData } = await supabase
-      .from('trading_assets')
-      .select('id')
-      .eq('name', asset)
-      .maybeSingle();
-    
-    if (!assetData) {
-      const { data: newAsset } = await supabase
-        .from('trading_assets')
-        .insert({ name: asset, symbol: asset })
-        .select()
-        .single();
-      assetData = newAsset;
-    }
-    
-    if (is_closed === true || is_closed === 'true') {
-      // Atualizar ordem existente
-      const { error: updateError } = await supabase
-        .from('trading_operations')
-        .update({
-          result: parseFloat(result),
-          status: 'Fechada',
-          closed_at: new Date().toISOString().split('T')[0],
-          exit_price: parseFloat(entry_price) || 0
-        })
-        .eq('mt5_ticket', String(ticket))
-        .eq('account_id', String(account_id));
-      
-      if (updateError) throw updateError;
-      console.log('✅ Ordem atualizada com resultado:', result);
-    } else {
-      // Inserir nova ordem
-      const { data: operation, error: insertError } = await supabase
-        .from('trading_operations')
-        .insert({
-          account_id: String(account_id),
-          asset_id: assetData?.id,
-          asset: asset,
-          direction: direction,
-          entry_price: parseFloat(entry_price),
-          lots: parseFloat(lots),
-          opened_at: new Date().toISOString().split('T')[0],
-          status: 'Aberta',
-          source: 'mt5',
-          mt5_ticket: String(ticket)
-        })
-        .select()
-        .single();
-      
-      if (insertError) throw insertError;
-      console.log('✅ Ordem inserida:', operation);
-    }
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error('❌ Erro:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================
-// INICIAR SERVIDOR
-// ============================================
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-});
+}
