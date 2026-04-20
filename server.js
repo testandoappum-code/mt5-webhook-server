@@ -160,19 +160,17 @@ app.post('/webhook/order', async (req, res) => {
 });
 
 // ============================================
-// TELEGRAM WEBHOOK (CORRIGIDO)
+// TELEGRAM WEBHOOK (RESPOSTA RÁPIDA)
 // ============================================
 app.post('/webhook/telegram', (req, res) => {
-  let body = '';
+  // Responder imediatamente para evitar timeout
+  res.sendStatus(200);
   
-  req.on('data', chunk => {
-    body += chunk.toString();
-  });
-  
-  req.on('end', () => {
+  // Processar em segundo plano
+  setTimeout(() => {
     try {
-      const data = JSON.parse(body);
-      console.log('📥 Telegram webhook recebido:', data);
+      const data = req.body;
+      console.log('📥 Telegram webhook recebido');
       
       if (data.message && data.message.text) {
         const texto = data.message.text;
@@ -181,22 +179,19 @@ app.post('/webhook/telegram', (req, res) => {
         // Verificar se é ORDEM ABERTA
         if (texto.includes('ORDEM ABERTA')) {
           console.log('✅ ORDEM ABERTA DETECTADA');
-          // Aqui vamos extrair os dados e salvar no Supabase
+          // TODO: extrair dados e salvar no Supabase
         }
         
         // Verificar se é ORDEM FECHADA
         if (texto.includes('ORDEM FECHADA')) {
           console.log('✅ ORDEM FECHADA DETECTADA');
-          // Aqui vamos extrair os dados e salvar no Supabase
+          // TODO: extrair dados e salvar no Supabase
         }
       }
-      
-      res.sendStatus(200);
     } catch (e) {
-      console.log('❌ Erro ao parsear JSON:', e.message);
-      res.sendStatus(200);
+      console.log('❌ Erro ao processar:', e.message);
     }
-  });
+  }, 0);
 });
 
 // ============================================
