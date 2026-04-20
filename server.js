@@ -6,22 +6,6 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware para limpar caracteres nulos do body ANTES do parser JSON
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', chunk => {
-    data += chunk.toString().replace(/\0/g, '');
-  });
-  req.on('end', () => {
-    try {
-      req.body = JSON.parse(data);
-    } catch (e) {
-      req.body = {};
-    }
-    next();
-  });
-});
-
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -102,7 +86,19 @@ app.post('/webhook/order', async (req, res) => {
     return res.status(401).json({ error: 'Invalid secret' });
   }
   
-  const { account_id, asset, direction, entry_price, lots, ticket, is_closed, result } = req.body;
+  const cleanString = (str) => {
+    if (!str) return str;
+    return String(str).replace(/\0/g, '').trim();
+  };
+  
+  const account_id = cleanString(req.body.account_id);
+  const asset = cleanString(req.body.asset);
+  const direction = cleanString(req.body.direction);
+  const entry_price = req.body.entry_price;
+  const lots = req.body.lots;
+  const ticket = cleanString(req.body.ticket);
+  const is_closed = req.body.is_closed === 'true' || req.body.is_closed === true;
+  const result = req.body.result;
   
   try {
     let { data: assetData } = await supabase
@@ -120,8 +116,7 @@ app.post('/webhook/order', async (req, res) => {
       assetData = newAsset;
     }
     
-    if (is_closed === true || is_closed === 'true') {
-      // Atualizar ordem existente
+    if (is_closed) {
       const { error: updateError } = await supabase
         .from('trading_operations')
         .update({
@@ -130,17 +125,16 @@ app.post('/webhook/order', async (req, res) => {
           closed_at: new Date().toISOString().split('T')[0],
           exit_price: parseFloat(entry_price) || 0
         })
-        .eq('mt5_ticket', String(ticket))
-        .eq('account_id', String(account_id));
+        .eq('mt5_ticket', ticket)
+        .eq('account_id', account_id);
       
       if (updateError) throw updateError;
       console.log('✅ Ordem atualizada com resultado:', result);
     } else {
-      // Inserir nova ordem
       const { data: operation, error: insertError } = await supabase
         .from('trading_operations')
         .insert({
-          account_id: String(account_id),
+          account_id: account_id,
           asset_id: assetData?.id,
           asset: asset,
           direction: direction,
@@ -149,7 +143,7 @@ app.post('/webhook/order', async (req, res) => {
           opened_at: new Date().toISOString().split('T')[0],
           status: 'Aberta',
           source: 'mt5',
-          mt5_ticket: String(ticket)
+          mt5_ticket: ticket
         })
         .select()
         .single();
@@ -164,19 +158,47 @@ app.post('/webhook/order', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================================
-// TELEGRAM WEBHOOK
+// TELEGRAM WEBHOOK (CORRIGIDO)
 // ============================================
-app.post('/webhook/telegram', async (req, res) => {
-  console.log('📥 Telegram webhook recebido:', req.body);
+app.post('/webhook/telegram', (req, res) => {
+  let body = '';
   
-  const { message } = req.body;
-  if (message && message.text) {
-    console.log('📝 Mensagem do Telegram:', message.text);
-  }
+  req.on('data', chunk => {
+    body += chunk.toString();
+  });
   
-  res.sendStatus(200);
+  req.on('end', () => {
+    try {
+      const data = JSON.parse(body);
+      console.log('📥 Telegram webhook recebido:', data);
+      
+      if (data.message && data.message.text) {
+        const texto = data.message.text;
+        console.log('📝 Mensagem do Telegram:', texto);
+        
+        // Verificar se é ORDEM ABERTA
+        if (texto.includes('ORDEM ABERTA')) {
+          console.log('✅ ORDEM ABERTA DETECTADA');
+          // Aqui vamos extrair os dados e salvar no Supabase
+        }
+        
+        // Verificar se é ORDEM FECHADA
+        if (texto.includes('ORDEM FECHADA')) {
+          console.log('✅ ORDEM FECHADA DETECTADA');
+          // Aqui vamos extrair os dados e salvar no Supabase
+        }
+      }
+      
+      res.sendStatus(200);
+    } catch (e) {
+      console.log('❌ Erro ao parsear JSON:', e.message);
+      res.sendStatus(200);
+    }
+  });
 });
+
 // ============================================
 // INICIAR SERVIDOR
 // ============================================
