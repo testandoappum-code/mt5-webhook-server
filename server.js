@@ -164,7 +164,19 @@ app.post('/webhook/order', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
+// ============================================
+// TELEGRAM WEBHOOK
+// ============================================
+app.post('/webhook/telegram', async (req, res) => {
+  console.log('📥 Telegram webhook recebido:', req.body);
+  
+  const { message } = req.body;
+  if (message && message.text) {
+    console.log('📝 Mensagem do Telegram:', message.text);
+  }
+  
+  res.sendStatus(200);
+});
 // ============================================
 // INICIAR SERVIDOR
 // ============================================
